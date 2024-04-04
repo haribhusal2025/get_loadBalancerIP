@@ -18,6 +18,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// ANSI color codes for terminal output
+const (
+	ColorReset  = "\033[0m"
+	ColorRed    = "\033[31m"
+	ColorGreen  = "\033[32m"
+	ColorYellow = "\033[33m"
+	ColorBlue   = "\033[34m"
+	ColorPurple = "\033[35m"
+	ColorCyan   = "\033[36m"
+	ColorWhite  = "\033[37m"
+	Bold        = "\033[1m"
+)
+
 // Spinner animation characters
 var (
 	chars = []string{"|", "/", "-", "\\"}
@@ -27,7 +40,7 @@ func main() {
 	// Get current user
 	currentUser, err := user.Current()
 	if err != nil {
-		fmt.Printf("Error getting current user: %v\n", err)
+		fmt.Printf("%sError getting current user: %v%s\n", ColorRed, err, ColorReset)
 		os.Exit(1)
 	}
 
@@ -39,14 +52,14 @@ func main() {
 	// Load kubeconfig file
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		fmt.Printf("Error loading kubeconfig: %v\n", err)
+		fmt.Printf("%sError loading kubeconfig: %v%s\n", ColorRed, err, ColorReset)
 		os.Exit(1)
 	}
 
 	// Create Kubernetes clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		fmt.Printf("Error creating Kubernetes client: %v\n", err)
+		fmt.Printf("%sError creating Kubernetes client: %v%s\n", ColorRed, err, ColorReset)
 		os.Exit(1)
 	}
 
@@ -55,19 +68,33 @@ func main() {
 
 	// Prompt user for Ansible username
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("\nEnter the Ansible username to run ARP command (Ex: johndoe or johndoe-adm): ")
+	fmt.Print(ColorBlue, "\nEnter the Ansible username to run ARP command (Ex: johndoe or johndoe-adm): ", ColorReset)
 	ansibleUsername, _ := reader.ReadString('\n')
 	ansibleUsername = strings.TrimSpace(ansibleUsername)
+
+	// Get all nodes in the cluster
+	nodes, err := getAllNodes(clientset)
+	if err != nil {
+		fmt.Printf("%sError fetching nodes: %v%s\n", ColorRed, err, ColorReset)
+		os.Exit(1)
+	}
+
+	// Create inventory file
+	err = createInventoryFile(nodes, ansibleUsername)
+	if err != nil {
+		fmt.Printf("%sError creating inventory file: %v%s\n", ColorRed, err, ColorReset)
+		os.Exit(1)
+	}
 
 	// Get interface name starting with '7' using Ansible
 	arpInterface := getInterfaceNameStartingWithSeven()
 	if arpInterface == "" {
-		fmt.Println("Failed to retrieve network interface starting with '7'. Please check your setup.")
+		fmt.Println(ColorRed, "Failed to retrieve network interface starting with '7'. Please check your setup.", ColorReset)
 		os.Exit(1)
 	}
 
 	// Prompt user for LB IPs
-	fmt.Print("\nDo you want to get all LoadBalancer IPs ? (yes/no): ")
+	fmt.Print(ColorBlue, "\nDo you want to get all LoadBalancer IPs ? (yes/no): ", ColorReset)
 	option, _ := reader.ReadString('\n')
 	option = strings.TrimSpace(option)
 
@@ -78,21 +105,7 @@ func main() {
 	} else if option == "no" {
 		lbIPs = getSpecificLoadBalancerIPs(reader)
 	} else {
-		fmt.Println("Invalid option. Please choose 'yes' or 'no'.")
-		os.Exit(1)
-	}
-
-	// Get all nodes in the cluster
-	nodes, err := getAllNodes(clientset)
-	if err != nil {
-		fmt.Printf("Error fetching nodes: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create inventory file
-	err = createInventoryFile(nodes, ansibleUsername)
-	if err != nil {
-		fmt.Printf("Error creating inventory file: %v\n", err)
+		fmt.Println(ColorRed, "Invalid option. Please choose 'yes' or 'no'.", ColorReset)
 		os.Exit(1)
 	}
 
@@ -101,30 +114,22 @@ func main() {
 	defer stopSpinner() // Ensure spinner stops at the end
 	runARPCommandOnAllNodes(nodes, arpInterface, lbIPs, ansibleUsername)
 
+	// Print the interface used for ARP command
+	fmt.Printf("\nInterface Used to run ARP command: %s%s%s\n\n\n", ColorGreen, arpInterface, ColorReset)
+	fmt.Printf("%s****%s\n\n", ColorPurple, ColorReset)
+
 	// Remove the inventory file after displaying the final output
 	err = removeInventoryFile()
 	if err != nil {
-		fmt.Printf("Error removing inventory file: %v\n", err)
+		fmt.Printf("%sError removing inventory file: %v%s\n", ColorRed, err, ColorReset)
 	}
-}
-
-func getInterfaceNameStartingWithSeven() string {
-	// Run a command using Ansible to get the interface name whose IP starts with '7'
-	cmd := exec.Command("ansible", "-i", "k8s.inventory", "k8s[1]", "-m", "shell", "-a", "ip addr show | grep -oP '^\\d+: \\K[^:]*' | xargs -I{} ip addr show {} | grep -oP '(?<=inet\\s)7\\S+'")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("Error executing Ansible command: %v\n", err)
-		return "" // Return empty string or handle error appropriately
-	}
-	interfaceName := strings.TrimSpace(string(out))
-	return interfaceName
 }
 
 func printWelcomeMessage(currentUser *user.User) {
 	fmt.Println("\n*******************************************")
-	fmt.Printf("*** Welcome, %s! ***\n", currentUser.Username)
+	fmt.Printf("%s*** Welcome, %s! ***%s\n", ColorGreen, currentUser.Username, ColorReset)
 	fmt.Println("*******************************************")
-	fmt.Printf("\x1b[3mThis tool helps you find the node name associated with LoadBalancer IPs in your Kubernetes cluster.\x1b[0m\n") // Italics
+	fmt.Printf("%sThis tool helps you find the node name associated with LoadBalancer IPs in your Kubernetes cluster.%s\n", ColorCyan, ColorReset) // Italics
 }
 
 func getLoadBalancerIPsStartingWithSeven(clientset *kubernetes.Clientset) []string {
@@ -133,7 +138,7 @@ func getLoadBalancerIPsStartingWithSeven(clientset *kubernetes.Clientset) []stri
 	// Get LoadBalancer services
 	services, err := clientset.CoreV1().Services("").List(context.TODO(), v1.ListOptions{})
 	if err != nil {
-		fmt.Printf("Error fetching services: %v\n", err)
+		fmt.Printf("%sError fetching services: %v%s\n", ColorRed, err, ColorReset)
 		return lbIPs
 	}
 
@@ -215,7 +220,7 @@ func loadingAnimation() func() {
 				return
 			default:
 				for _, char := range chars {
-					fmt.Printf("\rWorking %s", char)
+					fmt.Printf("\r%sWorking %s%s", ColorPurple, char, ColorReset)
 					time.Sleep(100 * time.Millisecond)
 				}
 			}
@@ -248,22 +253,23 @@ func runARPCommandOnAllNodes(nodes []string, arpInterface string, lbIPs []string
 
 	// Print table with color
 	fmt.Println("\nHere is your result:")
+
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Node Name", "LoadBalancer IP"})
 	table.SetHeaderColor(
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgHiRedColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgHiRedColor},
+		tablewriter.Colors{tablewriter.Bold, tablewriter.FgRedColor},
+		tablewriter.Colors{tablewriter.Bold, tablewriter.FgRedColor},
 	)
 	table.SetColumnColor(
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgHiYellowColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgHiYellowColor},
+		tablewriter.Colors{tablewriter.Bold, tablewriter.FgYellowColor},
+		tablewriter.Colors{tablewriter.Bold, tablewriter.FgYellowColor},
 	)
 
 	for _, row := range hostingNodes {
 		table.Append(row)
 	}
 
-	table.Render()
+	table.Render() // Render the table with color settings
 }
 
 func removeInventoryFile() error {
@@ -277,3 +283,19 @@ func removeInventoryFile() error {
 	return nil
 }
 
+func getInterfaceNameStartingWithSeven() string {
+	// Run a command using Ansible to get the interface name whose IP starts with '7'
+	cmd := exec.Command("ansible", "-i", "k8s.inventory", "k8s[1]", "-m", "shell", "-a", "ip route | awk '/7/ {print $3}' | head -2")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("%sError executing Ansible command: %v%s\n", ColorRed, err, ColorReset)
+		return "" // Return empty string or handle error appropriately
+	}
+	//fmt.Println("Command output:", string(out))
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) >= 3 {
+		interfaceName := strings.TrimSpace(lines[2]) // Third line
+		return interfaceName
+	}
+	return ""
+}
